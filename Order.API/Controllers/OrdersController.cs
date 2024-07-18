@@ -1,9 +1,12 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using MassTransit;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Order.API.Models;
 using Order.API.Models.Entities;
 using Order.API.Models.Enums;
 using Order.API.ViewModels;
+using Shared.Events;
+using Shared.Messages;
 
 namespace Order.API.Controllers
 {
@@ -13,10 +16,12 @@ namespace Order.API.Controllers
     {
 
         private readonly OrderAPIDbContext _db;
+        private readonly IPublishEndpoint publishEndpoint;
 
-        public OrdersController(OrderAPIDbContext db)
+        public OrdersController(OrderAPIDbContext db, IPublishEndpoint publishEndpoint)
         {
             _db = db;
+            this.publishEndpoint = publishEndpoint;
         }
 
         [HttpPost]
@@ -25,7 +30,7 @@ namespace Order.API.Controllers
             Order.API.Models.Entities.Order order = new()
             {
                 OrderId = Guid.NewGuid(),
-                BuyerId = createOrder.BuyerId,   
+                BuyerId = createOrder.BuyerId,
                 CreatedDate = DateTime.Now,
                 OrderStatus = OrderStatus.Suspend
             };
@@ -37,12 +42,25 @@ namespace Order.API.Controllers
                 ProductId = oi.ProductId
             }).ToList();
 
-            order.TotalPrice = order.OrderItems.Sum(oi => oi.Price * oi.Count);     
+            order.TotalPrice = order.OrderItems.Sum(oi => oi.Price * oi.Count);
 
-            await _db.Orders.AddAsync(order);   
-            await _db.SaveChangesAsync();   
+            await _db.Orders.AddAsync(order);
+            await _db.SaveChangesAsync();
 
-            return Ok(order);   
+            OrderCreatedEvent orderCreatedEvent = new()
+            {
+                OrderId = order.OrderId,
+                BuyerId = order.BuyerId,
+                OrderItems = order.OrderItems.Select(oi => new OrderItemMessage
+                {
+                    Count = oi.Count,
+                    ProductId = oi.ProductId
+                }).ToList()
+            };
+
+            await publishEndpoint.Publish(orderCreatedEvent);
+
+            return Ok();
         }
     }
 }

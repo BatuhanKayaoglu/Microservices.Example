@@ -1,3 +1,4 @@
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Order.API.Models;
 
@@ -14,6 +15,16 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddDbContext<OrderAPIDbContext>(options =>
 {
     options.UseSqlServer(builder.Configuration.GetConnectionString("SqlServer"));
+});
+
+
+// ADD MASSTRANSIT
+builder.Services.AddMassTransit(configurator => 
+{
+    configurator.UsingRabbitMq((context, cfg) =>
+    {
+        cfg.Host(builder.Configuration.GetSection("RabbitMQUrl").Value);
+    });
 });     
 
 var app = builder.Build();
