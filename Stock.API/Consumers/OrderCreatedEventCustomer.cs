@@ -12,12 +12,14 @@ namespace Stock.API.Consumers
         private readonly MongoDBService _mongoDBService;
         IMongoCollection<Stock.API.Models.Entities.Stock> stockCollection;
         private readonly ISendEndpointProvider _sendEndpointProvider;
+        private readonly IPublishEndpoint _publishEndpoint;
 
-        public OrderCreatedEventCustomer(MongoDBService mongoDBService, ISendEndpointProvider sendEndpointProvider)
+        public OrderCreatedEventCustomer(MongoDBService mongoDBService, ISendEndpointProvider sendEndpointProvider, IPublishEndpoint publishEndpoint)
         {
             _mongoDBService = mongoDBService;
             stockCollection = _mongoDBService.GetCollection<Stock.API.Models.Entities.Stock>();
             _sendEndpointProvider = sendEndpointProvider;
+            _publishEndpoint = publishEndpoint;
         }
 
         public async Task Consume(ConsumeContext<OrderCreatedEvent> context)
@@ -48,6 +50,7 @@ namespace Stock.API.Consumers
                 // Payment event starting here.    
                 ISendEndpoint sendEndpoint = await _sendEndpointProvider.GetSendEndpoint(new Uri($"queue:{RabbitMQSettings.Payment_StockReservedEventQueue}"));
                 await sendEndpoint.Send(stockReservedEvent);  
+                Console.WriteLine("Stock reserved event sent to Payment service");  
                 // Publish yaparsak tüm servislerdeki consumerlar tetiklenir. Send ise sadece bir consumer tetikler.
                 // Publish'de merkezdeki evente abone olan tüm consumerlar tetiklenir.
 
@@ -57,7 +60,15 @@ namespace Stock.API.Consumers
             }
             else
             {
+                StockNotReservedEvent stockNotReservedEvent = new()
+                {
+                    OrderId = context.Message.OrderId,
+                    BuyerId = context.Message.BuyerId,
+                    Message = "Stock is not enough"
+                };      
 
+                await _publishEndpoint.Publish(stockNotReservedEvent);  // birden fazla consumerin dinlemesi gerekiyor olabilir bu yüzden publish kullanıldı.   
+                Console.WriteLine("Stock not reserved event published and successfull");    
             }
         }
     }
